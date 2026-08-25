@@ -31,7 +31,6 @@
       const wsRef = useRef(null);
 
       useEffect(() => {
-        // Automatic WebSocket protocol matching (ws:// on local, wss:// on HTTPS production)
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const socket = new WebSocket(`${protocol}//${window.location.host}`);
         
@@ -65,7 +64,6 @@
         setLoading(true);
 
         try {
-          // Dynamic relative endpoint routed via server.js proxy
           const res = await fetch('/api/analyze', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -99,7 +97,6 @@
         }
 
         try {
-          // Dynamic relative endpoint routed via server.js proxy
           const res = await fetch('/api/analyze', {
             method: 'POST',
             body: file,
