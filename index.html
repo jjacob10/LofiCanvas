@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LofiCanvas Live</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body class="bg-black text-white min-h-screen flex items-center justify-center overflow-hidden font-sans select-none">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    function App() {
+      const [vibeState, setVibeState] = useState({
+        energy: 0.35,
+        vibe: 'Deep Focus',
+        description: 'Waiting for audio track...',
+        palette: ['#090d16', '#3b82f6'],
+        spotifyTrackId: ''
+      });
+      const [sourceType, setSourceType] = useState('spotify');
+      const [spotifyUrl, setSpotifyUrl] = useState('');
+      const [fileName, setFileName] = useState('');
+      const [loading, setLoading] = useState(false);
+      const audioRef = useRef(null);
+      const wsRef = useRef(null);
+
+      useEffect(() => {
+        // Automatic WebSocket protocol matching (ws:// on local, wss:// on HTTPS production)
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const socket = new WebSocket(`${protocol}//${window.location.host}`);
+        
+        socket.onmessage = (event) => {
+          try {
+            const msg = JSON.parse(event.data);
+            if (msg.type === 'SYNC') setVibeState(msg.data);
+          } catch (err) {
+            console.error('Error parsing sync message:', err);
+          }
+        };
+
+        wsRef.current = socket;
+        return () => socket.close();
+      }, []);
+
+      const broadcastVibe = (data) => {
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({ type: 'UPDATE_VIBE', data }));
+        } else {
+          setVibeState((prev) => ({ ...prev, ...data }));
+        }
+      };
+
+      const handleSpotifySubmit = async (e) => {
+        e.preventDefault();
+        if (!spotifyUrl) return;
+
+        const match = spotifyUrl.match(/track\/([a-zA-Z0-9]+)/);
+        const trackId = match ? match[1] : spotifyUrl.trim();
+        setLoading(true);
+
+        try {
+          // Dynamic relative endpoint routed via server.js proxy
+          const res = await fetch('/api/analyze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: trackId }),
+          });
+          const data = await res.json();
+          broadcastVibe({ ...data, spotifyTrackId: trackId });
+        } catch (err) {
+          broadcastVibe({
+            energy: 0.65,
+            vibe: "Flow State",
+            description: "Pulsing basslines (Offline Sync)",
+            palette: ["#130722", "#ec4899"],
+            spotifyTrackId: trackId
+          });
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      const handleFileUpload = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        setFileName(file.name);
+        setLoading(true);
+
+        if (audioRef.current) {
+          audioRef.current.src = URL.createObjectURL(file);
+          audioRef.current.play().catch(() => {});
+        }
+
+        try {
+          // Dynamic relative endpoint routed via server.js proxy
+          const res = await fetch('/api/analyze', {
+            method: 'POST',
+            body: file,
+          });
+          const data = await res.json();
+          broadcastVibe({ ...data, spotifyTrackId: '' });
+        } catch (err) {
+          broadcastVibe({
+            energy: 0.72,
+            vibe: "Cyberpunk Club",
+            description: "Hard electro synth (Offline Mode)",
+            palette: ["#022627", "#06b6d4"],
+            spotifyTrackId: ''
+          });
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      const scale = 1 + vibeState.energy * 0.45;
+      const gradient = `radial-gradient(circle, ${vibeState.palette[1]} 0%, ${vibeState.palette[0]} 100%)`;
+
+      return (
+        <div 
+          className="relative w-full h-screen flex flex-col items-center justify-center transition-colors duration-1000"
+          style={{ backgroundColor: vibeState.palette[0] }}
+        >
+          {/* Ambient Glow */}
+          <div 
+            className="absolute w-[500px] h-[500px] rounded-full blur-[120px] opacity-70 transition-all duration-700 ease-out pointer-events-none"
+            style={{
+              background: gradient,
+              transform: `scale(${scale})`
+            }}
+          />
+
+          {/* Interactive Card */}
+          <div className="relative z-10 p-8 bg-white/10 backdrop-blur-xl rounded-3xl border border-white/20 shadow-2xl flex flex-col items-center gap-4 w-96 max-w-sm text-center">
+            <span className="text-xs uppercase font-semibold tracking-widest text-white/50">Room Vibe</span>
+            
+            <div className="min-h-[50px] flex flex-col items-center justify-center">
+              <h1 className="text-2xl font-bold tracking-tight">
+                {loading ? 'Syncing Vibe...' : vibeState.vibe}
+              </h1>
+              {vibeState.description && (
+                <p className="text-xs text-white/60 mt-1 leading-snug">{vibeState.description}</p>
+              )}
+            </div>
+            
+            {/* Energy Bar */}
+            <div className="w-full bg-white/10 rounded-full h-2 overflow-hidden my-1">
+              <div 
+                className="h-full transition-all duration-700 rounded-full" 
+                style={{ 
+                  width: `${Math.round(vibeState.energy * 100)}%`,
+                  backgroundColor: vibeState.palette[1]
+                }}
+              />
+            </div>
+
+            {/* Mode Switcher */}
+            <div className="flex bg-white/10 p-1 rounded-xl w-full text-xs font-medium border border-white/10">
+              <button 
+                type="button"
+                onClick={() => setSourceType('spotify')} 
+                className={`flex-1 py-1.5 rounded-lg transition-all ${sourceType === 'spotify' ? 'bg-white/20 text-white shadow-sm' : 'text-white/50 hover:text-white'}`}
+              >
+                Spotify Link
+              </button>
+              <button 
+                type="button"
+                onClick={() => setSourceType('upload')} 
+                className={`flex-1 py-1.5 rounded-lg transition-all ${sourceType === 'upload' ? 'bg-white/20 text-white shadow-sm' : 'text-white/50 hover:text-white'}`}
+              >
+                Upload File
+              </button>
+            </div>
+
+            {/* Controls */}
+            {sourceType === 'spotify' ? (
+              <div className="w-full flex flex-col gap-3">
+                <form onSubmit={handleSpotifySubmit} className="flex gap-2 w-full">
+                  <input 
+                    type="text" 
+                    placeholder="Paste Spotify track link..." 
+                    value={spotifyUrl}
+                    onChange={(e) => setSpotifyUrl(e.target.value)}
+                    className="flex-1 px-3 py-2 bg-white/10 border border-white/20 rounded-xl text-xs text-white placeholder-white/40 focus:outline-none focus:border-white/50"
+                  />
+                  <button 
+                    type="submit" 
+                    className="px-4 py-2 bg-white/20 hover:bg-white/30 active:scale-95 text-xs font-medium rounded-xl border border-white/30 transition-all"
+                  >
+                    Sync
+                  </button>
+                </form>
+
+                {vibeState.spotifyTrackId && (
+                  <iframe 
+                    src={`https://open.spotify.com/embed/track/${vibeState.spotifyTrackId}?utm_source=generator&theme=0`} 
+                    width="100%" 
+                    height="80" 
+                    frameBorder="0" 
+                    allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" 
+                    loading="lazy"
+                    className="rounded-xl shadow-lg border border-white/10"
+                  />
+                )}
+              </div>
+            ) : (
+              <div className="w-full flex flex-col gap-3">
+                <audio ref={audioRef} controls className="w-full h-8 opacity-80" />
+                <label className="w-full cursor-pointer px-4 py-2.5 bg-white/15 hover:bg-white/25 active:scale-95 rounded-xl text-sm font-medium border border-white/20 transition-all text-center">
+                  {fileName ? 'Change File' : 'Upload Track'}
+                  <input 
+                    type="file" 
+                    accept="audio/*" 
+                    className="hidden" 
+                    onChange={handleFileUpload} 
+                  />
+                </label>
+                {fileName && <p className="text-xs text-white/40 truncate w-full">{fileName}</p>}
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
